@@ -17,7 +17,17 @@ class InvalidPDFError(PDFExtractionError):
 
 
 class EncryptedPDFError(PDFExtractionError):
-    """Raised when the PDF is password-protected or encrypted."""
+    """Base exception for encrypted PDF issues."""
+    pass
+
+
+class PasswordRequiredError(EncryptedPDFError):
+    """Raised when the PDF requires a password and none was supplied."""
+    pass
+
+
+class IncorrectPasswordError(EncryptedPDFError):
+    """Raised when the supplied password is incorrect."""
     pass
 
 
@@ -48,7 +58,7 @@ class ExtractionDiagnostics:
 @dataclass
 class ExtractionResult:
     filename: str
-    status: Literal["success", "ocr_needed", "empty"]
+    status: Literal["success", "ocr_needed", "empty", "password_required"]
     message: str
     total_pages: int
     total_characters: int
@@ -57,11 +67,16 @@ class ExtractionResult:
     diagnostics: ExtractionDiagnostics | None = None
 
 
-def extract_pdf_preview(stream_or_bytes: io.BytesIO | bytes, filename: str = "statement.pdf") -> ExtractionResult:
+def extract_pdf_preview(
+    stream_or_bytes: io.BytesIO | bytes,
+    filename: str = "statement.pdf",
+    password: str | None = None,
+) -> ExtractionResult:
     """
     Extracts text page-by-page from a PDF stream in memory.
+    Supports password-protected PDFs via standard library decryption.
     Detects when no extractable text is present (scanned / image-based indicator).
-    Never logs or persists sensitive document text.
+    Never logs or persists passwords or sensitive document text.
     """
     if isinstance(stream_or_bytes, bytes):
         stream = io.BytesIO(stream_or_bytes)
@@ -81,20 +96,40 @@ def extract_pdf_preview(stream_or_bytes: io.BytesIO | bytes, filename: str = "st
     if b"%PDF" not in header:
         raise InvalidPDFError("File does not contain a valid PDF header.")
 
+    clean_password = password.strip() if (password and password.strip()) else None
+
     try:
-        pdf_doc = pdfplumber.open(stream)
+        pdf_doc = pdfplumber.open(stream, password=clean_password)
     except (PDFPasswordIncorrect, PDFEncryptionError) as e:
-        raise EncryptedPDFError("Password-protected or encrypted PDFs are not currently supported.") from e
+        if not clean_password:
+            raise PasswordRequiredError("This PDF is password-protected. Please enter a password.") from e
+        raise IncorrectPasswordError("Incorrect password. Please verify the password and try again.") from e
     except (PDFSyntaxError, PDFNoValidXRef) as e:
         raise InvalidPDFError("Could not parse PDF. File may be corrupt or malformed.") from e
     except Exception as e:
-        err_msg = str(e).lower()
-        if "password" in err_msg or "encrypt" in err_msg or "decrypt" in err_msg:
-            raise EncryptedPDFError("Password-protected or encrypted PDFs are not currently supported.") from e
+        # Check for wrapped exceptions from pdfminer / pypdfium2
+        err_str = str(e).lower()
+        is_pwd_err = (
+            isinstance(e, (PDFPasswordIncorrect, PDFEncryptionError))
+            or (hasattr(e, "args") and e.args and isinstance(e.args[0], (PDFPasswordIncorrect, PDFEncryptionError)))
+            or (hasattr(e, "__context__") and isinstance(e.__context__, (PDFPasswordIncorrect, PDFEncryptionError)))
+            or "password" in err_str
+            or "encrypt" in err_str
+            or "decrypt" in err_str
+        )
+        if is_pwd_err:
+            if not clean_password:
+                raise PasswordRequiredError("This PDF is password-protected. Please enter a password.") from e
+            raise IncorrectPasswordError("Incorrect password. Please verify the password and try again.") from e
         raise InvalidPDFError("Could not parse PDF. File may be corrupt or malformed.") from e
 
     with pdf_doc:
         total_pages = len(pdf_doc.pages)
+        is_encrypted = (
+            clean_password is not None
+            or (hasattr(pdf_doc, "doc") and getattr(pdf_doc.doc, "encryption", None) is not None)
+        )
+
         if total_pages == 0:
             return ExtractionResult(
                 filename=filename,
@@ -107,7 +142,7 @@ def extract_pdf_preview(stream_or_bytes: io.BytesIO | bytes, filename: str = "st
                 diagnostics=ExtractionDiagnostics(
                     has_extractable_text=False,
                     ocr_likely_required=False,
-                    is_encrypted=False,
+                    is_encrypted=is_encrypted,
                     page_count=0,
                     image_count=0,
                 ),
@@ -161,7 +196,7 @@ def extract_pdf_preview(stream_or_bytes: io.BytesIO | bytes, filename: str = "st
         if not has_text:
             # Note: Lack of extractable text is an indicator of scanned/image-based content,
             # not definitive proof.
-            status: Literal["success", "ocr_needed", "empty"] = "ocr_needed"
+            status: Literal["success", "ocr_needed", "empty", "password_required"] = "ocr_needed"
             message = (
                 "No extractable text found. The document appears to have no digital text layer and "
                 "may be a scanned or image-based PDF, which requires OCR (currently unsupported)."
@@ -176,7 +211,7 @@ def extract_pdf_preview(stream_or_bytes: io.BytesIO | bytes, filename: str = "st
         diagnostics = ExtractionDiagnostics(
             has_extractable_text=has_text,
             ocr_likely_required=ocr_likely,
-            is_encrypted=False,
+            is_encrypted=is_encrypted,
             page_count=total_pages,
             image_count=total_images,
         )

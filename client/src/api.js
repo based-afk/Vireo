@@ -8,9 +8,12 @@ export async function getTransactions() {
   const { data } = await api.get('/transactions')
   return data.transactions
 }
-export async function previewPdfImport(file) {
+export async function previewPdfImport(file, password = '') {
   const formData = new FormData()
   formData.append('file', file)
+  if (password && password.trim()) {
+    formData.append('password', password.trim())
+  }
   const { data } = await api.post('/imports/preview', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })

@@ -1,5 +1,18 @@
 import { useState, useRef } from 'react'
-import { FileUp, FileText, CheckCircle2, AlertCircle, Copy, Check, X, Sparkles } from 'lucide-react'
+import {
+  FileUp,
+  FileText,
+  CheckCircle2,
+  AlertCircle,
+  Copy,
+  Check,
+  X,
+  Sparkles,
+  Lock,
+  Unlock,
+  Eye,
+  EyeOff,
+} from 'lucide-react'
 import PageHeader from '../components/layout/PageHeader.jsx'
 import EmptyState from '../components/ui/EmptyState.jsx'
 import { previewPdfImport } from '../api.js'
@@ -17,10 +30,18 @@ export default function ImportPage() {
   const [dragActive, setDragActive] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [infoNotice, setInfoNotice] = useState('')
   const [result, setResult] = useState(null)
   const [activePageIndex, setActivePageIndex] = useState(0)
   const [copied, setCopied] = useState(false)
   const fileInputRef = useRef(null)
+
+  // Password-protected PDF state
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
+  const [password, setPassword] = useState('')
+  const [passwordVisible, setPasswordVisible] = useState(false)
+  const [passwordError, setPasswordError] = useState('')
+  const [submittingPassword, setSubmittingPassword] = useState(false)
 
   const activePage = result?.pages?.[activePageIndex] || null
 
@@ -50,8 +71,12 @@ export default function ImportPage() {
   const validateAndSetFile = (file) => {
     if (!file) return
     setError('')
+    setInfoNotice('')
     setResult(null)
     setActivePageIndex(0)
+    setPassword('')
+    setPasswordError('')
+    setShowPasswordModal(false)
 
     if (!file.name.toLowerCase().endsWith('.pdf')) {
       setError('Please select a valid PDF file (.pdf).')
@@ -72,10 +97,18 @@ export default function ImportPage() {
     if (!selectedFile) return
     setLoading(true)
     setError('')
+    setInfoNotice('')
     try {
       const data = await previewPdfImport(selectedFile)
-      setResult(data)
-      setActivePageIndex(0)
+      if (data.status === 'password_required') {
+        setResult(data)
+        setShowPasswordModal(true)
+        setPassword('')
+        setPasswordError('')
+      } else {
+        setResult(data)
+        setActivePageIndex(0)
+      }
     } catch (err) {
       const serverMsg =
         err.response?.data?.error ||
@@ -87,11 +120,57 @@ export default function ImportPage() {
     }
   }
 
+  const handlePasswordSubmit = async (e) => {
+    e.preventDefault()
+    if (!selectedFile || !password.trim()) return
+
+    setSubmittingPassword(true)
+    setPasswordError('')
+    try {
+      const data = await previewPdfImport(selectedFile, password)
+      setResult(data)
+      setActivePageIndex(0)
+      setError('')
+      setInfoNotice('')
+      setShowPasswordModal(false)
+      // Immediately clear sensitive password from memory
+      setPassword('')
+      setPasswordVisible(false)
+    } catch (err) {
+      const errorData = err.response?.data
+      const isIncorrectPassword =
+        errorData?.code === 'incorrect_password' ||
+        (typeof errorData?.error === 'string' && errorData.error.toLowerCase().includes('password'))
+
+      if (isIncorrectPassword) {
+        setPasswordError(errorData?.error || 'Incorrect password. Please verify and try again.')
+      } else {
+        const fallbackMsg = errorData?.error || 'Failed to decrypt document.'
+        setPasswordError(fallbackMsg)
+      }
+    } finally {
+      setSubmittingPassword(false)
+    }
+  }
+
+  const handlePasswordCancel = () => {
+    setShowPasswordModal(false)
+    setPassword('')
+    setPasswordError('')
+    setPasswordVisible(false)
+    setInfoNotice('Statement preview paused: Document password was not provided.')
+  }
+
   const handleClear = () => {
     setSelectedFile(null)
     setResult(null)
     setError('')
+    setInfoNotice('')
     setActivePageIndex(0)
+    setPassword('')
+    setPasswordError('')
+    setShowPasswordModal(false)
+    setPasswordVisible(false)
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
@@ -112,6 +191,7 @@ export default function ImportPage() {
       />
 
       {error ? <div className="notice error">{error}</div> : null}
+      {infoNotice ? <div className="notice" style={{ background: '#1c1c1c', border: '1px solid #333', color: '#ccc' }}>{infoNotice}</div> : null}
 
       <div className="dashboard-grid">
         {/* Upload Card */}
@@ -119,7 +199,7 @@ export default function ImportPage() {
           <div className="panel-heading">
             <div>
               <h2>Upload PDF Statement</h2>
-              <p>Supports digital text-based PDF statements up to 10 MB.</p>
+              <p>Supports digital text-based and password-protected PDF statements up to 10 MB.</p>
             </div>
             <span className="category-pill">Phase 1 Preview</span>
           </div>
@@ -140,7 +220,13 @@ export default function ImportPage() {
               onChange={handleFileInput}
             />
             <div className="dropzone-icon">
-              <FileUp size={24} />
+              {result?.status === 'password_required' ? (
+                <Lock size={24} style={{ color: '#ffb347' }} />
+              ) : result?.diagnostics?.is_encrypted ? (
+                <Unlock size={24} style={{ color: 'var(--green)' }} />
+              ) : (
+                <FileUp size={24} />
+              )}
             </div>
             <strong>
               {selectedFile ? selectedFile.name : 'Click or drop bank statement PDF'}
@@ -153,15 +239,25 @@ export default function ImportPage() {
           </div>
 
           <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
-            <button
-              className="primary-button"
-              disabled={!selectedFile || loading}
-              onClick={handleExtract}
-              style={{ flex: 1 }}
-            >
-              <Sparkles size={16} />
-              {loading ? 'Extracting text…' : 'Extract preview'}
-            </button>
+            {result?.status === 'password_required' ? (
+              <button
+                className="primary-button"
+                onClick={() => setShowPasswordModal(true)}
+                style={{ flex: 1, background: '#ffb347', color: '#1a1005', borderColor: '#ffb347' }}
+              >
+                <Lock size={15} /> Enter document password
+              </button>
+            ) : (
+              <button
+                className="primary-button"
+                disabled={!selectedFile || loading}
+                onClick={handleExtract}
+                style={{ flex: 1 }}
+              >
+                <Sparkles size={16} />
+                {loading ? 'Extracting text…' : 'Extract preview'}
+              </button>
+            )}
             {selectedFile ? (
               <button className="outline-button" onClick={handleClear} disabled={loading}>
                 <X size={15} /> Clear
@@ -175,7 +271,7 @@ export default function ImportPage() {
           <div className="panel-heading">
             <div>
               <h2>Extraction Summary</h2>
-              <p>Page counts and optical character recognition diagnostics.</p>
+              <p>Page counts, security status, and optical recognition diagnostics.</p>
             </div>
           </div>
 
@@ -202,7 +298,33 @@ export default function ImportPage() {
                 </div>
               </div>
 
-              {result.status === 'ocr_needed' ? (
+              {result.status === 'password_required' ? (
+                <div
+                  style={{
+                    background: '#2b2111',
+                    border: '1px solid #6b4e18',
+                    borderRadius: '12px',
+                    padding: '14px',
+                    color: '#ffc875',
+                    display: 'flex',
+                    gap: '12px',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <Lock size={19} style={{ flexShrink: 0 }} />
+                    <span style={{ fontSize: '12px' }}>{result.message}</span>
+                  </div>
+                  <button
+                    className="primary-button"
+                    style={{ padding: '6px 12px', fontSize: '11px', background: '#ffb347', color: '#1a1005', borderColor: '#ffb347' }}
+                    onClick={() => setShowPasswordModal(true)}
+                  >
+                    Unlock
+                  </button>
+                </div>
+              ) : result.status === 'ocr_needed' ? (
                 <div
                   style={{
                     background: '#281c10',
@@ -235,7 +357,14 @@ export default function ImportPage() {
                   }}
                 >
                   <CheckCircle2 size={18} style={{ flexShrink: 0 }} />
-                  <span style={{ fontSize: '12px' }}>{result.message}</span>
+                  <div style={{ fontSize: '12px' }}>
+                    {result.message}
+                    {result.diagnostics?.is_encrypted ? (
+                      <span style={{ marginLeft: '8px', color: 'var(--green)', fontWeight: 600 }}>
+                        (Decrypted with password)
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
               )}
             </div>
@@ -272,6 +401,19 @@ export default function ImportPage() {
             <Sparkles size={32} className="positive" />
             <strong>Extracting text from PDF…</strong>
             <span>Reading document layout and font encodings</span>
+          </div>
+        ) : result && result.status === 'password_required' ? (
+          <div className="empty-state" style={{ minHeight: '180px' }}>
+            <Lock size={32} style={{ color: '#ffb347' }} />
+            <strong style={{ color: '#ffb347' }}>Document is password-protected</strong>
+            <span>Enter the password to decrypt pages and inspect extracted text.</span>
+            <button
+              className="primary-button"
+              style={{ marginTop: '10px', background: '#ffb347', color: '#1a1005', borderColor: '#ffb347' }}
+              onClick={() => setShowPasswordModal(true)}
+            >
+              Enter Password
+            </button>
           </div>
         ) : result && result.pages.length > 0 ? (
           <div>
@@ -310,6 +452,93 @@ export default function ImportPage() {
           />
         )}
       </article>
+
+      {/* Password Modal */}
+      {showPasswordModal ? (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !submittingPassword) {
+              handlePasswordCancel()
+            }
+          }}
+        >
+          <form className="modal" onSubmit={handlePasswordSubmit}>
+            <div className="modal-header">
+              <div>
+                <h2>Protected Statement</h2>
+                <p>This statement requires a password to decrypt. Enter the password below.</p>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={handlePasswordCancel}
+                disabled={submittingPassword}
+                aria-label="Close dialog"
+              >
+                <X size={19} />
+              </button>
+            </div>
+
+            {passwordError ? (
+              <div className="notice error">{passwordError}</div>
+            ) : null}
+
+            <label>
+              Password
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={passwordVisible ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value)
+                    if (passwordError) setPasswordError('')
+                  }}
+                  placeholder="Enter PDF password"
+                  autoFocus
+                  required
+                  autoComplete="off"
+                  disabled={submittingPassword}
+                  style={{ paddingRight: '42px' }}
+                />
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={() => setPasswordVisible((v) => !v)}
+                  aria-label={passwordVisible ? 'Hide password' : 'Show password'}
+                  style={{
+                    position: 'absolute',
+                    right: '10px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#888',
+                  }}
+                >
+                  {passwordVisible ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </label>
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="outline-button"
+                onClick={handlePasswordCancel}
+                disabled={submittingPassword}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="primary-button"
+                disabled={!password.trim() || submittingPassword}
+              >
+                {submittingPassword ? 'Unlocking…' : 'Unlock & Preview'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </>
   )
 }

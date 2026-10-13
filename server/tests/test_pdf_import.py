@@ -7,6 +7,8 @@ from app.services.pdf_extractor import (
     extract_pdf_preview,
     InvalidPDFError,
     EmptyPDFError,
+    PasswordRequiredError,
+    IncorrectPasswordError,
 )
 from app.config import MAX_UPLOAD_SIZE_BYTES
 
@@ -55,6 +57,24 @@ def make_synthetic_scanned_pdf() -> bytes:
     )
 
 
+def make_synthetic_encrypted_pdf(
+    text: str = "Confidential Bank Statement Balance INR 75000.00",
+    password: str = "bankpass123",
+) -> bytes:
+    """Generates a valid encrypted PDF using pypdf for testing decryption."""
+    import pypdf
+
+    raw_pdf = make_synthetic_text_pdf(text)
+    reader = pypdf.PdfReader(io.BytesIO(raw_pdf))
+    writer = pypdf.PdfWriter()
+    for page in reader.pages:
+        writer.add_page(page)
+    writer.encrypt(password)
+    buf = io.BytesIO()
+    writer.write(buf)
+    return buf.getvalue()
+
+
 class TestPDFExtractorService(unittest.TestCase):
     def test_extract_valid_text_pdf(self):
         pdf_bytes = make_synthetic_text_pdf("HDFC Bank Statement")
@@ -64,6 +84,7 @@ class TestPDFExtractorService(unittest.TestCase):
         self.assertEqual(result.total_pages, 1)
         self.assertTrue(result.diagnostics.has_extractable_text)
         self.assertFalse(result.diagnostics.ocr_likely_required)
+        self.assertFalse(result.diagnostics.is_encrypted)
         self.assertIn("HDFC Bank Statement", result.pages[0].text)
 
     def test_extract_scanned_style_pdf_needs_ocr(self):
@@ -88,6 +109,29 @@ class TestPDFExtractorService(unittest.TestCase):
         with self.assertRaises(InvalidPDFError):
             extract_pdf_preview(b"%PDF-1.4\ncorrupt body and truncated content", filename="corrupt.pdf")
 
+    def test_encrypted_pdf_missing_password_raises_password_required(self):
+        enc_bytes = make_synthetic_encrypted_pdf()
+        with self.assertRaises(PasswordRequiredError):
+            extract_pdf_preview(enc_bytes, filename="protected.pdf")
+
+    def test_encrypted_pdf_incorrect_password_raises_incorrect_password(self):
+        enc_bytes = make_synthetic_encrypted_pdf(password="correct123")
+        with self.assertRaises(IncorrectPasswordError):
+            extract_pdf_preview(enc_bytes, filename="protected.pdf", password="wrongpassword")
+
+    def test_encrypted_pdf_correct_password_succeeds(self):
+        enc_bytes = make_synthetic_encrypted_pdf(
+            text="Decrypted ICICI Statement Balance 50000",
+            password="correct123",
+        )
+        result = extract_pdf_preview(enc_bytes, filename="protected.pdf", password="correct123")
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.total_pages, 1)
+        self.assertTrue(result.diagnostics.is_encrypted)
+        self.assertTrue(result.diagnostics.has_extractable_text)
+        self.assertIn("Decrypted ICICI Statement", result.pages[0].text)
+
 
 class TestPDFImportAPI(unittest.TestCase):
     def setUp(self):
@@ -104,6 +148,7 @@ class TestPDFImportAPI(unittest.TestCase):
         self.assertEqual(data["status"], "success")
         self.assertEqual(data["total_pages"], 1)
         self.assertTrue(data["diagnostics"]["has_extractable_text"])
+        self.assertFalse(data["diagnostics"]["is_encrypted"])
         self.assertIn("Opening Balance", data["pages"][0]["text"])
 
     def test_preview_scanned_pdf_reports_ocr_needed(self):
@@ -117,6 +162,46 @@ class TestPDFImportAPI(unittest.TestCase):
         self.assertEqual(data["status"], "ocr_needed")
         self.assertTrue(data["diagnostics"]["ocr_likely_required"])
         self.assertFalse(data["diagnostics"]["has_extractable_text"])
+
+    def test_preview_encrypted_pdf_without_password_returns_password_required(self):
+        enc_bytes = make_synthetic_encrypted_pdf(password="secretpass")
+        response = self.client.post(
+            "/api/imports/preview",
+            files={"file": ("locked.pdf", io.BytesIO(enc_bytes), "application/pdf")},
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "password_required")
+        self.assertTrue(data["diagnostics"]["is_encrypted"])
+        self.assertFalse(data["diagnostics"]["has_extractable_text"])
+
+    def test_preview_encrypted_pdf_with_wrong_password_returns_400_incorrect_password(self):
+        enc_bytes = make_synthetic_encrypted_pdf(password="secretpass")
+        response = self.client.post(
+            "/api/imports/preview",
+            files={"file": ("locked.pdf", io.BytesIO(enc_bytes), "application/pdf")},
+            data={"password": "wrongpassword"},
+        )
+        self.assertEqual(response.status_code, 400)
+        data = response.json()
+        self.assertEqual(data["code"], "incorrect_password")
+        self.assertIn("incorrect password", data["error"].lower())
+
+    def test_preview_encrypted_pdf_with_correct_password_succeeds(self):
+        enc_bytes = make_synthetic_encrypted_pdf(
+            text="Protected Account Statement INR 120000",
+            password="secretpass",
+        )
+        response = self.client.post(
+            "/api/imports/preview",
+            files={"file": ("locked.pdf", io.BytesIO(enc_bytes), "application/pdf")},
+            data={"password": "secretpass"},
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "success")
+        self.assertTrue(data["diagnostics"]["is_encrypted"])
+        self.assertIn("Protected Account Statement", data["pages"][0]["text"])
 
     def test_preview_rejects_non_pdf_extension(self):
         response = self.client.post(

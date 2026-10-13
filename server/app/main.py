@@ -1,5 +1,5 @@
 import logging
-from fastapi import FastAPI, Depends, status, Request, UploadFile, File
+from fastapi import FastAPI, Depends, status, Request, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -20,6 +20,8 @@ from .services.pdf_extractor import (
     extract_pdf_preview,
     InvalidPDFError,
     EncryptedPDFError,
+    PasswordRequiredError,
+    IncorrectPasswordError,
     EmptyPDFError,
 )
 
@@ -122,11 +124,14 @@ def create_transaction(payload: TransactionCreate, db: Session = Depends(get_db)
 
 
 @app.post("/api/imports/preview", response_model=PDFPreviewResponse)
-async def preview_pdf_import(file: UploadFile = File(...)):
+async def preview_pdf_import(
+    file: UploadFile = File(...),
+    password: str | None = Form(None),
+):
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
-            content={"error": "Uploaded file must be a PDF document (.pdf)."},
+            content={"error": "Uploaded file must be a PDF document (.pdf).", "code": "invalid_extension"},
         )
 
     try:
@@ -143,7 +148,7 @@ async def preview_pdf_import(file: UploadFile = File(...)):
                 max_mb = MAX_UPLOAD_SIZE_BYTES // (1024 * 1024)
                 return JSONResponse(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    content={"error": f"File size exceeds the maximum limit of {max_mb} MB."},
+                    content={"error": f"File size exceeds the maximum limit of {max_mb} MB.", "code": "file_too_large"},
                 )
             chunks.append(chunk)
 
@@ -152,25 +157,47 @@ async def preview_pdf_import(file: UploadFile = File(...)):
         if len(file_bytes) == 0:
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                content={"error": "Uploaded file is empty (0 bytes)."},
+                content={"error": "Uploaded file is empty (0 bytes).", "code": "empty_pdf"},
             )
 
-        result = extract_pdf_preview(file_bytes, filename=file.filename)
+        result = extract_pdf_preview(file_bytes, filename=file.filename, password=password)
         return result
+    except PasswordRequiredError as e:
+        return {
+            "filename": file.filename,
+            "status": "password_required",
+            "message": str(e),
+            "total_pages": 0,
+            "total_characters": 0,
+            "total_words": 0,
+            "pages": [],
+            "diagnostics": {
+                "has_extractable_text": False,
+                "ocr_likely_required": False,
+                "is_encrypted": True,
+                "page_count": 0,
+                "image_count": 0,
+            },
+        }
+    except IncorrectPasswordError as e:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": str(e), "code": "incorrect_password"},
+        )
     except EmptyPDFError as e:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
-            content={"error": str(e)},
+            content={"error": str(e), "code": "empty_pdf"},
         )
     except EncryptedPDFError as e:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
-            content={"error": str(e)},
+            content={"error": str(e), "code": "encrypted_pdf"},
         )
     except InvalidPDFError as e:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
-            content={"error": str(e)},
+            content={"error": str(e), "code": "invalid_pdf"},
         )
     except Exception as e:
         logger.error(f"Unexpected error processing PDF import: {type(e).__name__}")

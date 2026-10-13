@@ -92,7 +92,7 @@ class PDFDiagnosticsSchema(BaseModel):
 
 class PDFPreviewResponse(BaseModel):
     filename: str
-    status: Literal["success", "ocr_needed", "empty"]
+    status: Literal["success", "ocr_needed", "empty", "password_required"]
     message: str
     total_pages: int
     total_characters: int
