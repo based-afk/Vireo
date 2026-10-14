@@ -24,6 +24,7 @@ from .services.pdf_extractor import (
     IncorrectPasswordError,
     EmptyPDFError,
 )
+from .services.statement_parser import parse_bank_statement_text
 
 
 logger = logging.getLogger("moneta")
@@ -161,7 +162,22 @@ async def preview_pdf_import(
             )
 
         result = extract_pdf_preview(file_bytes, filename=file.filename, password=password)
-        return result
+        parsed_statement = None
+        if result.status == "success" and result.pages:
+            combined_text = "\n\n".join(p.text for p in result.pages if p.text)
+            parsed_statement = parse_bank_statement_text(combined_text)
+
+        return {
+            "filename": result.filename,
+            "status": result.status,
+            "message": result.message,
+            "total_pages": result.total_pages,
+            "total_characters": result.total_characters,
+            "total_words": result.total_words,
+            "pages": result.pages,
+            "diagnostics": result.diagnostics,
+            "statement": parsed_statement,
+        }
     except PasswordRequiredError as e:
         return {
             "filename": file.filename,
@@ -178,6 +194,7 @@ async def preview_pdf_import(
                 "page_count": 0,
                 "image_count": 0,
             },
+            "statement": None,
         }
     except IncorrectPasswordError as e:
         return JSONResponse(

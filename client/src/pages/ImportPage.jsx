@@ -12,9 +12,12 @@ import {
   Unlock,
   Eye,
   EyeOff,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react'
 import PageHeader from '../components/layout/PageHeader.jsx'
 import EmptyState from '../components/ui/EmptyState.jsx'
+import StatementTable from '../components/import/StatementTable.jsx'
 import { previewPdfImport } from '../api.js'
 
 function formatBytes(bytes) {
@@ -34,6 +37,7 @@ export default function ImportPage() {
   const [result, setResult] = useState(null)
   const [activePageIndex, setActivePageIndex] = useState(0)
   const [copied, setCopied] = useState(false)
+  const [showRawText, setShowRawText] = useState(false)
   const fileInputRef = useRef(null)
 
   // Password-protected PDF state
@@ -74,6 +78,7 @@ export default function ImportPage() {
     setInfoNotice('')
     setResult(null)
     setActivePageIndex(0)
+    setShowRawText(false)
     setPassword('')
     setPasswordError('')
     setShowPasswordModal(false)
@@ -108,6 +113,8 @@ export default function ImportPage() {
       } else {
         setResult(data)
         setActivePageIndex(0)
+        // If structured transactions were not found, auto-expand raw text
+        setShowRawText(!data.statement?.has_transactions)
       }
     } catch (err) {
       const serverMsg =
@@ -130,6 +137,7 @@ export default function ImportPage() {
       const data = await previewPdfImport(selectedFile, password)
       setResult(data)
       setActivePageIndex(0)
+      setShowRawText(!data.statement?.has_transactions)
       setError('')
       setInfoNotice('')
       setShowPasswordModal(false)
@@ -167,6 +175,7 @@ export default function ImportPage() {
     setError('')
     setInfoNotice('')
     setActivePageIndex(0)
+    setShowRawText(false)
     setPassword('')
     setPasswordError('')
     setShowPasswordModal(false)
@@ -377,36 +386,21 @@ export default function ImportPage() {
         </section>
       </div>
 
-      {/* Extracted Text Content */}
-      <article className="panel" style={{ marginTop: '16px' }}>
-        <div className="panel-heading">
-          <div>
-            <h2>Extracted Text Preview</h2>
-            <p>
-              {result && activePage
-                ? `Showing page ${activePage.page_number} of ${result.total_pages} (${activePage.character_count} characters, ${activePage.word_count} words)`
-                : 'Raw text extracted from uploaded statement pages.'}
-            </p>
-          </div>
-          {activePage?.text ? (
-            <button className="outline-button" onClick={handleCopy}>
-              {copied ? <Check size={14} className="positive" /> : <Copy size={14} />}
-              {copied ? 'Copied' : 'Copy page text'}
-            </button>
-          ) : null}
-        </div>
-
-        {loading ? (
+      {/* Primary Result Section: Statement Transactions Table */}
+      {loading ? (
+        <article className="panel" style={{ marginTop: '16px' }}>
           <div className="empty-state">
             <Sparkles size={32} className="positive" />
-            <strong>Extracting text from PDF…</strong>
-            <span>Reading document layout and font encodings</span>
+            <strong>Extracting & parsing statement…</strong>
+            <span>Reading document layout and extracting transaction rows</span>
           </div>
-        ) : result && result.status === 'password_required' ? (
+        </article>
+      ) : result && result.status === 'password_required' ? (
+        <article className="panel" style={{ marginTop: '16px' }}>
           <div className="empty-state" style={{ minHeight: '180px' }}>
             <Lock size={32} style={{ color: '#ffb347' }} />
             <strong style={{ color: '#ffb347' }}>Document is password-protected</strong>
-            <span>Enter the password to decrypt pages and inspect extracted text.</span>
+            <span>Enter the password to decrypt pages and parse statement transactions.</span>
             <button
               className="primary-button"
               style={{ marginTop: '10px', background: '#ffb347', color: '#1a1005', borderColor: '#ffb347' }}
@@ -415,43 +409,155 @@ export default function ImportPage() {
               Enter Password
             </button>
           </div>
-        ) : result && result.pages.length > 0 ? (
-          <div>
-            {result.pages.length > 1 ? (
-              <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
-                {result.pages.map((p, idx) => (
-                  <button
-                    key={p.page_number}
-                    className={`page-pill ${activePageIndex === idx ? 'active' : ''}`}
-                    onClick={() => setActivePageIndex(idx)}
-                  >
-                    Page {p.page_number}
-                    {p.character_count > 0 ? ` (${p.character_count} chars)` : ' (empty)'}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-
-            {activePage?.error ? (
-              <div className="notice error">{activePage.error}</div>
-            ) : activePage?.text ? (
-              <pre className="code-preview">{activePage.text}</pre>
-            ) : (
-              <div className="empty-state" style={{ minHeight: '180px' }}>
-                <AlertCircle size={28} />
-                <strong>No text found on this page</strong>
-                <span>This page contains no extractable digital text stream.</span>
-              </div>
-            )}
+        </article>
+      ) : result && result.status === 'ocr_needed' ? (
+        <article className="panel" style={{ marginTop: '16px' }}>
+          <div
+            style={{
+              background: '#281c10',
+              border: '1px solid #573919',
+              borderRadius: '12px',
+              padding: '16px',
+              color: '#ffc17d',
+              display: 'flex',
+              gap: '12px',
+              alignItems: 'flex-start',
+            }}
+          >
+            <AlertCircle size={22} style={{ flexShrink: 0, marginTop: '2px' }} />
+            <div style={{ fontSize: '13px', lineHeight: 1.5 }}>
+              <strong style={{ display: 'block', marginBottom: '4px' }}>Scanned / Image-Based PDF Detected</strong>
+              {result.message}
+            </div>
           </div>
-        ) : (
+        </article>
+      ) : result && result.statement?.has_transactions ? (
+        <div style={{ marginTop: '16px' }}>
+          <StatementTable statement={result.statement} filename={result.filename} />
+        </div>
+      ) : result ? (
+        <article className="panel" style={{ marginTop: '16px' }}>
+          <div
+            style={{
+              background: '#281c10',
+              border: '1px solid #573919',
+              borderRadius: '12px',
+              padding: '16px',
+              color: '#ffc17d',
+              display: 'flex',
+              gap: '12px',
+              alignItems: 'flex-start',
+            }}
+          >
+            <AlertCircle size={22} style={{ flexShrink: 0, marginTop: '2px' }} />
+            <div style={{ fontSize: '13px', lineHeight: 1.5 }}>
+              <strong style={{ display: 'block', marginBottom: '4px' }}>No structured transactions detected</strong>
+              Text was successfully extracted from {result.total_pages} page(s), but no rows matched the standard bank statement column layout (Txn Date, Narration, Withdrawals, Deposits, Closing Balance).
+              <p style={{ marginTop: '8px', color: '#ccc', fontSize: '12px' }}>
+                Expand "View extracted text" below to inspect the raw content.
+              </p>
+            </div>
+          </div>
+        </article>
+      ) : (
+        <article className="panel" style={{ marginTop: '16px' }}>
           <EmptyState
             icon={FileUp}
             title="No statement preview available"
-            message="Upload a PDF above and click 'Extract preview' to inspect statement contents."
+            message="Upload a bank statement PDF above and click 'Extract preview' to inspect parsed transactions."
           />
-        )}
-      </article>
+        </article>
+      )}
+
+      {/* Expandable Section: View Extracted Text */}
+      {result && result.pages && result.pages.length > 0 ? (
+        <article className="panel" style={{ marginTop: '16px' }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              cursor: 'pointer',
+              userSelect: 'none',
+            }}
+            onClick={() => setShowRawText((v) => !v)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div
+                style={{
+                  width: '28px',
+                  height: '28px',
+                  borderRadius: '6px',
+                  background: '#1d1d1d',
+                  display: 'grid',
+                  placeItems: 'center',
+                  color: '#aaa',
+                }}
+              >
+                {showRawText ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              </div>
+              <div>
+                <strong style={{ fontSize: '14px', color: '#f0f0f0' }}>View extracted text</strong>
+                <p style={{ fontSize: '11px', color: '#888', margin: 0 }}>
+                  Raw extracted text layer ({result.total_pages} page{result.total_pages !== 1 ? 's' : ''}, {result.total_characters.toLocaleString()} characters)
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              {showRawText && activePage?.text ? (
+                <button
+                  type="button"
+                  className="outline-button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleCopy()
+                  }}
+                  style={{ padding: '6px 12px', fontSize: '11px' }}
+                >
+                  {copied ? <Check size={14} className="positive" /> : <Copy size={14} />}
+                  {copied ? 'Copied' : 'Copy page text'}
+                </button>
+              ) : null}
+              <span style={{ fontSize: '11px', color: 'var(--green)', fontWeight: 600 }}>
+                {showRawText ? 'Hide' : 'Expand'}
+              </span>
+            </div>
+          </div>
+
+          {showRawText ? (
+            <div style={{ marginTop: '16px', borderTop: '1px solid #242424', paddingTop: '16px' }}>
+              {result.pages.length > 1 ? (
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
+                  {result.pages.map((p, idx) => (
+                    <button
+                      key={p.page_number}
+                      type="button"
+                      className={`page-pill ${activePageIndex === idx ? 'active' : ''}`}
+                      onClick={() => setActivePageIndex(idx)}
+                    >
+                      Page {p.page_number}
+                      {p.character_count > 0 ? ` (${p.character_count} chars)` : ' (empty)'}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              {activePage?.error ? (
+                <div className="notice error">{activePage.error}</div>
+              ) : activePage?.text ? (
+                <pre className="code-preview">{activePage.text}</pre>
+              ) : (
+                <div className="empty-state" style={{ minHeight: '140px' }}>
+                  <AlertCircle size={24} />
+                  <strong>No text found on this page</strong>
+                  <span>This page contains no extractable digital text stream.</span>
+                </div>
+              )}
+            </div>
+          ) : null}
+        </article>
+      ) : null}
 
       {/* Password Modal */}
       {showPasswordModal ? (

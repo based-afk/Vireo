@@ -25,3 +25,13 @@ client/dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Agent skills and lockfiles
+.agents/
+skills-lock.json
+
+# Markdown files (allow only root README.md)
+*.md
+**/*.md
+!/README.md
+!README.md

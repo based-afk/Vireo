@@ -90,6 +90,42 @@ class PDFDiagnosticsSchema(BaseModel):
     image_count: int = 0
 
 
+class ParsedTransactionSchema(BaseModel):
+    row_number: int
+    date: str | None = None
+    original_date: str | None = None
+    narration: str
+    type: Literal["EXPENSE", "INCOME", "UNKNOWN"]
+    amount: float = 0.0
+    withdrawal: float = 0.0
+    deposit: float = 0.0
+    closing_balance: float | None = None
+    status: Literal["valid", "needs_review"]
+    issues: list[str] = Field(default_factory=list)
+
+
+class StatementSummarySchema(BaseModel):
+    total_transactions: int = 0
+    valid_count: int = 0
+    needs_review_count: int = 0
+    total_withdrawals: float = 0.0
+    total_deposits: float = 0.0
+    net_change: float = 0.0
+    statement_total_withdrawals: float | None = None
+    statement_total_deposits: float | None = None
+    statement_net_income: float | None = None
+    statement_closing_balance: float | None = None
+
+
+class ParsedStatementSchema(BaseModel):
+    has_transactions: bool = False
+    format_detected: str = "Unknown"
+    summary: StatementSummarySchema
+    transactions: list[ParsedTransactionSchema] = Field(default_factory=list)
+    unparsed_lines: list[str] = Field(default_factory=list)
+    parsing_warnings: list[str] = Field(default_factory=list)
+
+
 class PDFPreviewResponse(BaseModel):
     filename: str
     status: Literal["success", "ocr_needed", "empty", "password_required"]
@@ -99,4 +135,5 @@ class PDFPreviewResponse(BaseModel):
     total_words: int
     pages: list[PDFPagePreviewSchema]
     diagnostics: PDFDiagnosticsSchema
+    statement: ParsedStatementSchema | None = None
 
