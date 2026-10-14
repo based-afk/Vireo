@@ -12,7 +12,7 @@ const navigation = [
 export default function Sidebar({ onNavigate }) {
   return <aside className="sidebar">
     <NavLink to="/" className="brand" onClick={onNavigate}>
-      <span className="brand-name">MONETA <i /></span>
+      <span className="brand-name">VIREO <i /></span>
       <span className="brand-subtitle">PERSONAL FINANCE</span>
     </NavLink>
     <nav className="nav-list">{navigation.map(({ to, label, icon: Icon }) => (

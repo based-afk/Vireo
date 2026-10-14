@@ -1,4 +1,4 @@
-# Moneta (Vireo) — Personal Finance Management
+# Vireo — Personal Finance Management
 
 A modern, privacy-focused, dark-first personal finance application designed for granular transaction tracking and intelligent bank statement ingestion. Built with a **React + Vite** frontend, a high-performance **FastAPI (Python)** backend, and **PostgreSQL** with **SQLAlchemy ORM**.
 
@@ -25,7 +25,7 @@ A modern, privacy-focused, dark-first personal finance application designed for 
 
 ## About the Project
 
-**Moneta** simplifies personal cashflow tracking while upholding strict privacy standards. Unlike services that require direct banking credentials or sync unvetted third-party cloud aggregators, Moneta provides a secure, client-controlled workflow:
+**Vireo** simplifies personal cashflow tracking while upholding strict privacy standards. Unlike services that require direct banking credentials or sync unvetted third-party cloud aggregators, Vireo provides a secure, client-controlled workflow:
 
 1. **Explicit Tracking**: Log and categorize daily income and expense transactions.
 2. **In-Memory Statement Import**: Upload standard digital or password-protected PDF bank statements to preview extracted transactions and verification summaries **before** anything is saved to the database.

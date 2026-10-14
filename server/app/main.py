@@ -27,10 +27,10 @@ from .services.pdf_extractor import (
 from .services.statement_parser import parse_bank_statement_text
 
 
-logger = logging.getLogger("moneta")
+logger = logging.getLogger("vireo")
 logging.basicConfig(level=logging.INFO)
 
-app = FastAPI(title="Moneta API", version="0.1.0")
+app = FastAPI(title="Vireo API", version="0.1.0")
 
 # CORS middleware
 app.add_middleware(
