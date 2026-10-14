@@ -1,6 +1,6 @@
-# Vireo — Personal Finance Management
+# Vireo — Privacy-First Personal Finance Tracker
 
-A modern, privacy-focused, dark-first personal finance application designed for granular transaction tracking and intelligent bank statement ingestion. Built with a **React + Vite** frontend, a high-performance **FastAPI (Python)** backend, and **PostgreSQL** with **SQLAlchemy ORM**.
+A privacy-focused personal finance and cashflow tracking application designed to give users control over their financial data. Combines manual transaction management with a secure bank-statement import workflow, allowing users to inspect and validate extracted transactions before they are persisted. Built with a **React + Vite** frontend, a **FastAPI (Python)** backend, and **PostgreSQL** with **SQLAlchemy ORM**.
 
 ---
 
@@ -25,28 +25,95 @@ A modern, privacy-focused, dark-first personal finance application designed for 
 
 ## About the Project
 
-**Vireo** simplifies personal cashflow tracking while upholding strict privacy standards. Unlike services that require direct banking credentials or sync unvetted third-party cloud aggregators, Vireo provides a secure, client-controlled workflow:
+**Vireo** is a privacy-focused personal finance and cashflow tracking application designed to give users control over their financial data. It combines manual transaction management with a secure bank-statement import workflow, allowing users to inspect and validate extracted transactions before they are persisted.
 
-1. **Explicit Tracking**: Log and categorize daily income and expense transactions.
-2. **In-Memory Statement Import**: Upload standard digital or password-protected PDF bank statements to preview extracted transactions and verification summaries **before** anything is saved to the database.
-3. **Zero Leaks**: Encrypted PDFs are unlocked on-the-fly in memory. Passwords and unconfirmed draft transactions are never persisted, cached, or written to disk.
+Unlike services that require direct banking credentials or rely on third-party financial aggregators, Vireo is designed around explicit user control, transparent data processing, and minimal retention of sensitive information.
+
+The project aims to provide a complete personal finance workflow—from transaction recording and spending analysis to intelligent categorization—while keeping the user in control of imported financial data.
+
+### Core Principles
+
+- **User-Controlled Data:** Transactions are explicitly entered or imported by the user.
+- **Privacy by Design:** Sensitive information is processed only when needed, with particular care around statement passwords and unconfirmed imports.
+- **Review Before Persistence:** Imported transactions are parsed and presented for inspection before being saved.
+- **Transparency:** Malformed or ambiguous records are flagged for review rather than silently accepted.
+- **Incremental Intelligence:** Automated categorization is intended to assist users without replacing their ability to correct predictions.
 
 ---
 
 ## Key Features
 
-- **Dark-First Premium UI**: Sleek, responsive interface built with Tailwind CSS, custom dark tokens, and micro-interactions.
-- **Transaction Ledger**: Fast creation and listing of income and expense records with category pills and currency formatting (₹ INR).
-- **PDF Bank Statement Importer**:
-  - Extracts tabular transaction rows (`Txn Date`, `Narration`, `Withdrawals`, `Deposits`, `Closing Balance`).
-  - Merges multiline narrations across line wraps seamlessly.
-  - Excludes page headers, footers, and statement-summary total rows from transaction counts.
-  - Flags ambiguous or malformed rows for human review rather than silently dropping them.
-- **Password-Protected PDF Support**:
-  - Detects encrypted PDFs and prompts with a secure, masked password modal.
-  - In-place retry for incorrect passwords without requiring file re-upload.
-  - Zero retention: passwords are immediately wiped from memory after processing.
-- **Scanned Document Detection**: Identifies image-only or scanned statements that require OCR (optical character recognition) and provides diagnostic feedback.
+### 1. Transaction Management
+
+- Record income and expenses manually.
+- Associate transactions with categories and transaction metadata.
+- View transactions in a centralized ledger.
+- Format monetary values in Indian Rupees (₹).
+- Support filtering, sorting and transaction review through a responsive interface.
+
+### 2. PDF Bank Statement Importer
+
+Vireo provides a statement-import workflow designed to extract transaction information from digital PDF bank statements without requiring direct access to the user's bank account.
+
+- **In-Memory Extraction:** Extract text from uploaded PDFs using Python and `pdfplumber`.
+- **Password-Protected PDFs:** Detect encrypted documents and request a password through a masked dialog.
+- **Retry Without Re-uploading:** Allow users to retry extraction after an incorrect password.
+- **Structured Transaction Parsing:** Convert statement text into transaction dates, narrations, withdrawals, deposits and closing balances.
+- **Multiline Narration Handling:** Reconstruct descriptions that span multiple lines.
+- **Statement Cleanup:** Recognize repeated page headers, footers and statement-summary rows.
+- **Validation and Review:** Flag ambiguous or malformed transaction rows for human inspection.
+- **Financial Summaries:** Calculate transaction counts, total withdrawals, total deposits and net movement from parsed records.
+- **Reconciliation Checks:** Compare parsed transaction totals with corresponding totals printed in the statement when available.
+- **Raw Text Diagnostics:** Keep the extracted text available for troubleshooting when structured parsing needs inspection.
+- **Scanned PDF Detection:** Identify documents without usable extractable text and indicate when OCR support would be required.
+
+The import workflow is designed to separate extraction and preview from database persistence. Parsed records remain drafts until a future confirmation-and-import workflow is implemented.
+
+### 3. Financial Dashboard
+
+The dashboard is intended to provide a consolidated view of personal cashflow through:
+
+- Total income and expenditure.
+- Current-period financial summaries.
+- Recent transactions.
+- Spending trends over time.
+- Category-level expense breakdowns.
+- Quick access to transaction management and analytics.
+
+Dashboard figures should ultimately be derived from persisted transaction data rather than static demonstration values.
+
+### 4. Spending Analytics
+
+The analytics module is intended to help users understand where their money goes and how spending changes over time. Planned capabilities include monthly income and expense comparisons, spending trends over configurable periods, category-wise expenditure breakdowns, and cashflow summaries.
+
+### 5. Transaction Categorization
+
+Vireo's longer-term scope includes automated transaction categorization using a combination of deterministic rules and machine learning:
+
+- Merchant and narration-based rules for recognizable transactions.
+- A Naive Bayes text-classification baseline for transaction descriptions.
+- User confirmation and correction of predicted categories.
+- A labelled dataset built from manually confirmed transactions.
+- Confidence-based review for uncertain predictions.
+
+Confirmed labels will be treated as the source of truth for training. Unreviewed predictions should not automatically become training labels.
+
+### 6. Privacy and Security
+
+- No requirement to provide banking credentials for statement imports.
+- Password-protected PDFs are unlocked through the PDF library's native decryption support.
+- Statement passwords are not stored in the database, browser storage, application logs or URLs.
+- Uploaded PDF contents are processed in memory during preview.
+- Unconfirmed draft transactions are kept separate from persisted ledger records.
+- File-size limits and input validation reduce risks associated with uploads.
+
+### 7. Responsive User Interface
+
+- Dark-first interface with a restrained, finance-oriented visual design.
+- React components for dashboards, transaction tables, analytics and statement imports.
+- Responsive layouts for different screen sizes.
+- Currency and date formatting suited to the intended user experience.
+- Clear loading, empty, error and review states.
 
 ---
 
@@ -235,13 +302,13 @@ Ensure you have the following installed on your machine:
 ### 1. Database Setup
 
 1. Start your PostgreSQL service.
-2. Create the `moneta` database:
+2. Create the `vireo` database:
    ```bash
-   psql -U postgres -c "CREATE DATABASE moneta;"
+   psql -U postgres -c "CREATE DATABASE vireo;"
    ```
 3. Initialize the database schema:
    ```bash
-   psql -U postgres -d moneta -f server/db/schema.sql
+   psql -U postgres -d vireo -f server/db/schema.sql
    ```
 
 ---
@@ -278,8 +345,8 @@ Ensure you have the following installed on your machine:
    ```
    Open `.env` and verify your PostgreSQL credentials:
    ```env
-   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/moneta
-   ALLOWED_ORIGINS=http://localhost:5173
+   DATABASE_URL=postgresql+psycopg://postgres:your_password@localhost:5432/vireo
+   CLIENT_ORIGIN=http://localhost:5173
    MAX_UPLOAD_SIZE_BYTES=10485760
    ```
 
@@ -381,3 +448,4 @@ npm run build
 2. **Ephemeral Passwords**: Document passwords are submitted via multipart POST body, never placed in query strings, never logged to stdout, and never stored in `localStorage` or cookies.
 3. **Draft Separation**: Imported transactions remain in frontend state as a preview until explicitly confirmed by the user.
 4. **Sanitized Error Reporting**: Database connection strings, stack traces, and internal PDF parser exceptions are intercepted and replaced with user-friendly error codes.
+
